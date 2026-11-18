@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mangadl</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>mangadl</h1>
+      <p class="muted">Paste a WeebCentral series link, pick chapters, get one PDF.</p>
+    </header>
+
+    <form id="load-form" class="panel row">
+      <input id="url" type="url" required autocomplete="off" spellcheck="false"
+             placeholder="https://weebcentral.com/series/…/…" aria-label="Series link">
+      <button id="load-btn" type="submit">Load</button>
+    </form>
+    <p id="message" class="message" role="alert" hidden></p>
+
+    <section id="series" class="panel" hidden>
+      <div class="series-head">
+        <img id="cover" alt="" hidden>
+        <div>
+          <h2 id="title"></h2>
+          <p id="chapter-count" class="muted"></p>
+        </div>
+      </div>
+
+      <div class="row controls">
+        <label class="range-label">
+          Range
+          <input id="range" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. 1-20, 25, 30-">
+        </label>
+        <button type="button" class="secondary" data-select="all">All</button>
+        <button type="button" class="secondary" data-select="none">None</button>
+        <button type="button" class="secondary" data-select="latest">Latest 10</button>
+      </div>
+      <p id="range-error" class="field-error" hidden></p>
+      <label class="check"><input id="include-extras" type="checkbox"> Include extras inside the range</label>
+
+      <div id="grid" class="grid" aria-label="Chapters"></div>
+      <p class="muted hint">Shift-click to select a run of chapters.</p>
+
+      <div class="row footer">
+        <span id="selected-count" class="muted"></span>
+        <button id="download-btn" type="button" disabled>Download PDF</button>
+      </div>
+    </section>
+
+    <section id="job" class="panel" hidden>
+      <div class="row job-head">
+        <span id="job-status"></span>
+        <button id="cancel-btn" type="button" class="secondary">Cancel</button>
+      </div>
+      <div class="bar" aria-hidden="true"><div id="bar-fill"></div></div>
+      <div id="job-done" class="row" hidden>
+        <span id="job-file"></span>
+        <a id="save-link" class="button" download>Save PDF</a>
+      </div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

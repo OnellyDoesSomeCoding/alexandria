@@ -1,0 +1,144 @@
+:root {
+  --bg: #e8e8e8;
+  --surface: #f5f5f5;
+  --border: #c8c8c8;
+  --text: #1e1e1e;
+  --muted: #6a6a6a;
+  --strong: #3a3a3a;
+  --on-strong: #f5f5f5;
+  --chip: #e0e0e0;
+  --radius: 6px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1a1a;
+    --surface: #232323;
+    --border: #3b3b3b;
+    --text: #e4e4e4;
+    --muted: #9a9a9a;
+    --strong: #cfcfcf;
+    --on-strong: #1a1a1a;
+    --chip: #2e2e2e;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 32px 16px 64px;
+  display: grid;
+  gap: 16px;
+}
+
+h1 { margin: 0; font-size: 22px; letter-spacing: 0.02em; }
+h2 { margin: 0; font-size: 18px; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.hint { font-size: 13px; }
+[hidden] { display: none !important; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#load-form { display: flex; }
+#url { flex: 1 1 260px; }
+
+input[type="url"], input[type="text"] {
+  min-width: 0;
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+input:focus-visible, button:focus-visible, .button:focus-visible {
+  outline: 2px solid var(--strong);
+  outline-offset: 1px;
+}
+
+button, .button {
+  padding: 8px 14px;
+  font: inherit;
+  color: var(--on-strong);
+  background: var(--strong);
+  border: 1px solid var(--strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+button.secondary { color: var(--text); background: transparent; border-color: var(--border); }
+button:disabled { opacity: 0.45; cursor: default; }
+
+.message, .field-error {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.field-error { font-size: 13px; padding: 6px 10px; }
+
+.series-head { display: flex; gap: 14px; align-items: center; }
+#cover { width: 64px; height: 92px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border); filter: grayscale(1); }
+
+.range-label { display: flex; gap: 8px; align-items: center; flex: 1 1 240px; }
+.range-label input { flex: 1; }
+.check { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; cursor: pointer; width: fit-content; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 6px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.chip { position: relative; }
+.chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.chip span {
+  display: block;
+  padding: 6px 4px;
+  text-align: center;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  background: var(--chip);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+}
+.chip.extra span { font-style: italic; border-style: dashed; }
+.chip input:checked + span { background: var(--strong); color: var(--on-strong); border-color: var(--strong); }
+.chip input:focus-visible + span { outline: 2px solid var(--strong); outline-offset: 1px; }
+
+.footer { justify-content: space-between; }
+.job-head { justify-content: space-between; }
+#job-done { justify-content: space-between; }
+
+.bar { height: 8px; background: var(--chip); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+#bar-fill { height: 100%; width: 0; background: var(--strong); transition: width 0.2s; }
+#bar-fill.busy { width: 100% !important; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.4; } }
