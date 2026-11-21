@@ -2,7 +2,7 @@
  * Account, session and friend logic. Every function takes the database as its first argument so it can be
  * tested against an in-memory Postgres; the cookie-handling layer is in ./session.ts.
  */
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import { and, count, eq, gt, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { DB } from "@/db";
@@ -188,4 +188,77 @@ export async function regenerateFriendCode(db: DB, userId: string): Promise<stri
     }
   }
   throw new Error("Could not generate a unique friend code.");
+}
+
+// ---------- passwords & admin ----------
+
+/** Change your own password. Signs out every other device; the caller starts a fresh session for this one. */
+export async function changePassword(db: DB, userId: string, current: string, next: string): Promise<void> {
+  const newPassword = passwordSchema.parse(next);
+  const [user] = await db.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, userId));
+  if (!user || !(await verifyPassword(current, user.passwordHash))) throw new AuthError("Your current password isn't right.");
+  await db.update(users).set({ passwordHash: await hashPassword(newPassword) }).where(eq(users.id, userId));
+  await db.delete(sessions).where(eq(sessions.userId, userId));
+}
+
+export interface AdminUserRow {
+  id: string;
+  username: string;
+  isAdmin: boolean;
+  createdAt: Date;
+  subscriptions: number;
+  lastActive: Date | null;
+}
+
+export async function listUsers(db: DB): Promise<AdminUserRow[]> {
+  const result = await db.execute(sql`
+    select u.id, u.username, u.is_admin as "isAdmin", u.created_at as "createdAt",
+      (select count(*)::int from subscriptions s where s.user_id = u.id) as "subscriptions",
+      greatest(
+        (select max(p.updated_at) from reading_progress p where p.user_id = u.id),
+        (select max(s.created_at) from sessions s where s.user_id = u.id)
+      ) as "lastActive"
+    from users u
+    order by u.created_at asc
+  `);
+  return (result as unknown as { rows: AdminUserRow[] }).rows.map((r) => ({
+    ...r,
+    createdAt: new Date(r.createdAt),
+    lastActive: r.lastActive ? new Date(r.lastActive) : null,
+  }));
+}
+
+async function requireAdmin(db: DB, adminId: string): Promise<void> {
+  const [admin] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, adminId));
+  if (!admin?.isAdmin) throw new AuthError("Only the admin can do that.");
+}
+
+/** Easy to read out or type: no 0/O, 1/l/I. */
+function temporaryPassword(): string {
+  const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
+  const pick = () => Array.from({ length: 4 }, () => alphabet[randomInt(alphabet.length)]).join("");
+  return `${pick()}-${pick()}-${pick()}`;
+}
+
+/** Admin: give someone a new temporary password (shown once) and sign them out everywhere. */
+export async function adminResetPassword(db: DB, adminId: string, targetId: string): Promise<{ username: string; password: string }> {
+  await requireAdmin(db, adminId);
+  const [target] = await db.select({ username: users.username }).from(users).where(eq(users.id, targetId));
+  if (!target) throw new AuthError("That account doesn't exist.");
+  const password = temporaryPassword();
+  await db.update(users).set({ passwordHash: await hashPassword(password) }).where(eq(users.id, targetId));
+  await db.delete(sessions).where(eq(sessions.userId, targetId));
+  await db.delete(loginFailures).where(eq(loginFailures.key, `user:${target.username.toLowerCase()}`)); // unlock if they were locked out
+  return { username: target.username, password };
+}
+
+/** Admin: delete an account and everything that belongs to it (subscriptions, progress, friendships). */
+export async function adminDeleteAccount(db: DB, adminId: string, targetId: string): Promise<string> {
+  await requireAdmin(db, adminId);
+  if (adminId === targetId) throw new AuthError("You can't delete your own account here.");
+  const [target] = await db.select({ username: users.username, isAdmin: users.isAdmin }).from(users).where(eq(users.id, targetId));
+  if (!target) throw new AuthError("That account doesn't exist.");
+  if (target.isAdmin) throw new AuthError("Admin accounts can't be deleted here.");
+  await db.delete(users).where(eq(users.id, targetId));
+  return target.username;
 }

@@ -149,6 +149,15 @@ describe("progress and the library", () => {
     expect(now.map((c) => c.completed)).toEqual([false, true, false]);
   });
 
+  it("marks a chapter and everything after it unread", async () => {
+    const { seriesId } = await lib.subscribeByLink(db, alice, "https://fake.test/series/X");
+    const list = (await lib.getSeriesWithChapters(db, alice, seriesId))!.chapters;
+    await lib.markReadUpTo(db, alice, list[2].id);
+    await lib.markUnreadFrom(db, alice, list[1].id);
+    const now = (await lib.getSeriesWithChapters(db, alice, seriesId))!.chapters;
+    expect(now.map((c) => c.completed)).toEqual([true, false, false]);
+  });
+
   it("counts chapters added after subscribing", async () => {
     const { seriesId } = await lib.subscribeByLink(db, alice, "https://fake.test/series/X");
     await new Promise((r) => setTimeout(r, 5));

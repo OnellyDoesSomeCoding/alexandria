@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useMemo, useState, useTransition } from "react";
-import { type ActionMessage, checkNow, markReadUpTo, setRead } from "@/app/actions/library";
+import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
+import { type ActionMessage, checkNow, markReadUpTo, markUnreadFrom, setRead } from "@/app/actions/library";
 import { ErrorText, SubtleButton } from "@/components/ui";
 import type { ChapterRow } from "@/lib/library";
 
@@ -24,6 +24,23 @@ const DAY = 24 * 60 * 60 * 1000;
 export function ChapterList({ chapters, subscribedAt }: { chapters: ChapterRow[]; subscribedAt: string | null }) {
   const [newestFirst, setNewestFirst] = useState(true);
   const [pending, startTransition] = useTransition();
+  const [menuFor, setMenuFor] = useState<string | null>(null); // chapter whose ⋯ menu is open
+  const act = (action: () => Promise<void>) => {
+    setMenuFor(null);
+    startTransition(action);
+  };
+  // Close the menu when tapping anywhere else or pressing Escape.
+  useEffect(() => {
+    if (!menuFor) return;
+    const close = () => setMenuFor(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    document.addEventListener("click", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuFor]);
   const [now] = useState(() => Date.now());
   const ordered = useMemo(() => (newestFirst ? [...chapters].reverse() : chapters), [chapters, newestFirst]);
   const since = subscribedAt ? new Date(subscribedAt).getTime() : null;
@@ -47,14 +64,31 @@ export function ChapterList({ chapters, subscribedAt }: { chapters: ChapterRow[]
                 {isNew && <span className="ml-2 rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white">new</span>}
                 {!c.completed && c.page !== null && c.page > 0 && <span className="ml-2 text-xs text-neutral-500">page {c.page + 1}</span>}
               </Link>
-              <button
-                type="button"
-                title="Mark this and every earlier chapter as read"
-                className="hidden text-xs text-neutral-500 hover:text-neutral-900 sm:block dark:hover:text-neutral-100"
-                onClick={() => startTransition(() => markReadUpTo(c.id))}
-              >
-                read up to here
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  aria-label={`More for ${c.name}`}
+                  aria-expanded={menuFor === c.id}
+                  aria-haspopup="menu"
+                  className="h-6 w-7 rounded text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuFor((open) => (open === c.id ? null : c.id));
+                  }}
+                >
+                  ⋯
+                </button>
+                {menuFor === c.id && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-7 z-10 flex w-48 flex-col overflow-hidden rounded-md border border-neutral-200 bg-white text-sm shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MenuItem onSelect={() => act(() => markReadUpTo(c.id))}>Read up to here</MenuItem>
+                    <MenuItem onSelect={() => act(() => markUnreadFrom(c.id))}>Unread from here</MenuItem>
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 aria-label={c.completed ? `Mark ${c.name} unread` : `Mark ${c.name} read`}
@@ -69,5 +103,13 @@ export function ChapterList({ chapters, subscribedAt }: { chapters: ChapterRow[]
         })}
       </ul>
     </section>
+  );
+}
+
+function MenuItem({ onSelect, children }: { onSelect: () => void; children: string }) {
+  return (
+    <button type="button" role="menuitem" className="px-3 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800" onClick={onSelect}>
+      {children}
+    </button>
   );
 }

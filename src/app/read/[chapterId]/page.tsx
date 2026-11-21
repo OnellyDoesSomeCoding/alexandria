@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import { getDb } from "@/db";
 import { requireUser } from "@/lib/auth/session";
 import { getReaderChapter, type ReaderChapter } from "@/lib/library";
-import { getReaderSettings } from "@/lib/settings";
+import { getSeriesReaderSettings } from "@/lib/settings";
 import { SourceError } from "@/lib/sources";
 import { Reader } from "./reader";
 
@@ -42,7 +42,7 @@ async function ReadChapter({ params }: { params: PageProps<"/read/[chapterId]">[
     );
   }
   if (!chapter) notFound();
-  const settings = await getReaderSettings(db, user.id);
+  const { settings, customized } = await getSeriesReaderSettings(db, user.id, chapter.seriesId);
   // key: a fresh reader (page 1, closed panels) for every chapter.
-  return <Reader key={chapter.id} chapter={chapter} initialSettings={settings} />;
+  return <Reader key={chapter.id} chapter={chapter} initialSettings={settings} initialCustomized={customized} />;
 }

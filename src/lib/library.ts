@@ -224,6 +224,17 @@ export async function markReadUpTo(db: DB, userId: string, chapterId: string): P
   }
 }
 
+/** Mark this chapter and every later one as unread (undo for "read up to here"). */
+export async function markUnreadFrom(db: DB, userId: string, chapterId: string): Promise<void> {
+  const [target] = await db.select({ seriesId: chapters.seriesId, position: chapters.position }).from(chapters).where(eq(chapters.id, chapterId));
+  if (!target) return;
+  await db.execute(sql`
+    update reading_progress p set completed = false, updated_at = now()
+    from chapters c
+    where c.id = p.chapter_id and p.user_id = ${userId} and c.series_id = ${target.seriesId} and c.position >= ${target.position}
+  `);
+}
+
 // ---------- reader ----------
 
 export interface ReaderChapter {

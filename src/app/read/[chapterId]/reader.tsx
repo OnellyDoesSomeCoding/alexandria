@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type CSSProperties, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { saveProgress, updateReaderSettings } from "@/app/actions/library";
+import { makeSeriesSettingsTheDefault, resetSeriesSettings, saveProgress, updateSeriesReaderSettings } from "@/app/actions/library";
 import { DownloadChapterButton } from "@/components/download-pdf";
 import type { ReaderFit, ReaderLayout, ReaderSettings } from "@/db/schema";
 import type { ReaderChapter } from "@/lib/library";
@@ -15,9 +15,19 @@ const TOP_BAR = 56;
 const BOTTOM_BAR = 48;
 const AVAILABLE_HEIGHT = "calc(100dvh - var(--top) - var(--bottom))";
 
-export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; initialSettings: ReaderSettings }) {
+export function Reader({
+  chapter,
+  initialSettings,
+  initialCustomized,
+}: {
+  chapter: ReaderChapter;
+  initialSettings: ReaderSettings;
+  /** Whether this series has its own settings (otherwise it follows the user's defaults). */
+  initialCustomized: boolean;
+}) {
   const router = useRouter();
   const [settings, setSettings] = useState(initialSettings);
+  const [customized, setCustomized] = useState(initialCustomized);
   const [page, setPage] = useState(chapter.savedPage); // first page of the current view
   const [atEnd, setAtEnd] = useState(false); // paged modes: the "end of chapter" screen
   const [showUi, setShowUi] = useState(true);
@@ -248,14 +258,29 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
     return () => clearTimeout(timer);
   }, [chapter.id, page, completed]);
 
+  const switchLayout = (to: ReaderLayout) => {
+    if (to === settings.layout) return;
+    setAtEnd(false);
+    if (to === "strip") requestAnimationFrame(() => scrollToPage(page));
+    else window.scrollTo(0, 0);
+  };
+
+  // Changes made while reading are saved for this series only.
   const change = (patch: Partial<ReaderSettings>) => {
     setSettings((s) => ({ ...s, ...patch }));
-    void updateReaderSettings(patch).catch(() => {});
-    if (patch.layout && patch.layout !== settings.layout) {
-      setAtEnd(false);
-      if (patch.layout === "strip") requestAnimationFrame(() => scrollToPage(page));
-      else window.scrollTo(0, 0);
-    }
+    setCustomized(true);
+    void updateSeriesReaderSettings(chapter.seriesId, patch).catch(() => {});
+    if (patch.layout) switchLayout(patch.layout);
+  };
+  const resetToDefaults = async () => {
+    const next = await resetSeriesSettings(chapter.seriesId);
+    switchLayout(next.layout);
+    setSettings(next);
+    setCustomized(false);
+  };
+  const makeDefaults = async () => {
+    await makeSeriesSettingsTheDefault(chapter.seriesId);
+    setCustomized(false); // this series now simply follows the (new) defaults
   };
 
   const img = (index: number, className: string, style?: CSSProperties) => (
@@ -349,7 +374,16 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
             </button>
           </header>
 
-          {panelOpen && <SettingsPanel settings={settings} onChange={change} />}
+          {panelOpen && (
+            <SettingsPanel
+              settings={settings}
+              onChange={change}
+              seriesTitle={chapter.seriesTitle}
+              customized={customized}
+              onReset={resetToDefaults}
+              onMakeDefault={makeDefaults}
+            />
+          )}
 
           <footer
             className="fixed inset-x-0 bottom-0 z-10 flex h-12 items-center gap-3 bg-neutral-900/95 px-4 text-sm backdrop-blur"
@@ -464,7 +498,55 @@ function Segmented<T extends string>({ label, value, options, onChange }: { labe
   );
 }
 
-function SettingsPanel({ settings, onChange }: { settings: ReaderSettings; onChange: (patch: Partial<ReaderSettings>) => void }) {
+function SettingsPanel({
+  settings,
+  onChange,
+  seriesTitle,
+  customized,
+  onReset,
+  onMakeDefault,
+}: {
+  settings: ReaderSettings;
+  onChange: (patch: Partial<ReaderSettings>) => void;
+  seriesTitle: string;
+  customized: boolean;
+  onReset: () => Promise<void>;
+  onMakeDefault: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const run = (action: () => Promise<void>) => async () => {
+    setBusy(true);
+    try {
+      await action();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const scope = (
+    <div className="flex flex-col gap-2 border-t border-neutral-800 pt-3 text-xs text-neutral-400">
+      <p>
+        {customized ? (
+          <>
+            Custom settings for <span className="text-neutral-200">{seriesTitle}</span>.
+          </>
+        ) : (
+          <>
+            Using your default settings. Changes here apply to <span className="text-neutral-200">{seriesTitle}</span> only.
+          </>
+        )}
+      </p>
+      {customized && (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={busy} onClick={run(onMakeDefault)} className="rounded border border-neutral-700 px-2 py-1 text-neutral-200 disabled:opacity-50">
+            Make these my defaults
+          </button>
+          <button type="button" disabled={busy} onClick={run(onReset)} className="rounded border border-neutral-700 px-2 py-1 text-neutral-200 disabled:opacity-50">
+            Reset to my defaults
+          </button>
+        </div>
+      )}
+    </div>
+  );
   return (
     <div
       className="fixed right-2 top-14 z-20 flex w-[min(22rem,calc(100vw-1rem))] flex-col gap-4 rounded-lg border border-neutral-800 bg-neutral-900 p-4 text-sm shadow-xl"
@@ -533,6 +615,7 @@ function SettingsPanel({ settings, onChange }: { settings: ReaderSettings; onCha
           )}
         </>
       )}
+      {scope}
     </div>
   );
 }

@@ -33,6 +33,8 @@ pnpm lint
 
 Open `/api/health` on the deployed site to check that the database is connected and migrated.
 
+The first account is the admin. **Admin** in the top bar lists accounts, resets a forgotten password (it gives a temporary one to pass on; they can change it under Profile), deletes accounts, and shows whether `SIGNUP_CODE` and `CRON_SECRET` are set.
+
 The daily check for new chapters (`vercel.json`) runs at 21:00 UTC (04:00 in Bangkok). On the free plan Vercel may run it any time within that hour.
 
 ## Changing the database

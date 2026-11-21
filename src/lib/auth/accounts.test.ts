@@ -3,7 +3,11 @@ import type { DB } from "@/db";
 import { testDb } from "@/test/db";
 import {
   addFriendByCode,
+  adminDeleteAccount,
+  adminResetPassword,
   AuthError,
+  changePassword,
+  listUsers,
   createAccount,
   createSession,
   deleteSession,
@@ -131,5 +135,53 @@ describe("friends", () => {
     expect((await listFriends(db, a.id)).map((f) => f.username)).toEqual(["bob"]);
     await expect(addFriendByCode(db, c.id, b.friendCode)).rejects.toThrow(/No one/);
     expect(await addFriendByCode(db, c.id, fresh)).toBe("bob");
+  });
+});
+
+describe("passwords and admin", () => {
+  it("changing your password needs the current one and signs out other devices", async () => {
+    const u = await createAccount(db, { username: "reader", password: "password1" }, open);
+    const { token } = await createSession(db, u.id);
+    await expect(changePassword(db, u.id, "wrong", "newpassword")).rejects.toThrow(/current password/);
+    await expect(changePassword(db, u.id, "password1", "short")).rejects.toThrow(/at least 8/);
+    await changePassword(db, u.id, "password1", "newpassword");
+    expect(await userFromSessionToken(db, token)).toBeNull();
+    await expect(verifyLogin(db, { username: "reader", password: "password1" })).rejects.toThrow();
+    expect((await verifyLogin(db, { username: "reader", password: "newpassword" })).id).toBe(u.id);
+  });
+
+  it("admin reset gives a working temporary password, signs the user out and unlocks them", async () => {
+    const admin = await createAccount(db, { username: "owner", password: "password1" }, open);
+    const friend = await createAccount(db, { username: "friend", password: "password1" }, open);
+    const { token } = await createSession(db, friend.id);
+    for (let i = 0; i < 10; i++) await verifyLogin(db, { username: "friend", password: "bad" }).catch(() => {});
+
+    const { username, password } = await adminResetPassword(db, admin.id, friend.id);
+    expect(username).toBe("friend");
+    expect(password).toMatch(/^[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}$/);
+    expect(await userFromSessionToken(db, token)).toBeNull();
+    expect((await verifyLogin(db, { username: "friend", password })).id).toBe(friend.id);
+  });
+
+  it("only the admin can reset or delete, and admins are protected", async () => {
+    const admin = await createAccount(db, { username: "owner", password: "password1" }, open);
+    const a = await createAccount(db, { username: "alice", password: "password1" }, open);
+    const b = await createAccount(db, { username: "bob", password: "password1" }, open);
+    await expect(adminResetPassword(db, a.id, b.id)).rejects.toThrow(/Only the admin/);
+    await expect(adminDeleteAccount(db, a.id, b.id)).rejects.toThrow(/Only the admin/);
+    await expect(adminDeleteAccount(db, admin.id, admin.id)).rejects.toThrow(/own account/);
+
+    await addFriendByCode(db, a.id, b.friendCode);
+    expect(await adminDeleteAccount(db, admin.id, b.id)).toBe("bob");
+    expect(await listFriends(db, a.id)).toEqual([]); // friendships go with the account
+    expect((await listUsers(db)).map((u) => u.username)).toEqual(["owner", "alice"]);
+  });
+
+  it("lists users with activity", async () => {
+    const admin = await createAccount(db, { username: "owner", password: "password1" }, open);
+    await createSession(db, admin.id);
+    const [row] = await listUsers(db);
+    expect(row).toMatchObject({ username: "owner", isAdmin: true, subscriptions: 0 });
+    expect(row.lastActive).toBeInstanceOf(Date);
   });
 });

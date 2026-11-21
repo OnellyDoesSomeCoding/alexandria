@@ -9,6 +9,7 @@ import { listFriends } from "@/lib/auth/accounts";
 import { formatFriendCode } from "@/lib/auth/codes";
 import { requireUser } from "@/lib/auth/session";
 import { AddFriendForm, CopyButton } from "./friend-forms";
+import { ChangePasswordForm } from "./password-form";
 
 export const metadata: Metadata = { title: "Profile" };
 
@@ -74,6 +75,11 @@ async function Profile() {
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="font-semibold">Change password</h2>
+        <ChangePasswordForm />
       </section>
     </div>
   );

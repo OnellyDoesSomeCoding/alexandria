@@ -29,8 +29,15 @@ async function UserLink() {
   const user = await getCurrentUser();
   if (!user) return null;
   return (
-    <Link href="/profile" className="text-sm font-medium">
-      {user.username}
-    </Link>
+    <div className="flex items-center gap-4">
+      {user.isAdmin && (
+        <Link href="/admin" className="text-sm text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100">
+          Admin
+        </Link>
+      )}
+      <Link href="/profile" className="text-sm font-medium">
+        {user.username}
+      </Link>
+    </div>
   );
 }

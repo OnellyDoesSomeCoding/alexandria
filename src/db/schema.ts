@@ -89,6 +89,24 @@ export const userSettings = pgTable("user_settings", {
   reader: jsonb("reader").$type<Partial<ReaderSettings>>().notNull().default({}),
 });
 
+/**
+ * Reader settings changed while reading a particular series. Only the changed keys are stored, so anything
+ * not customised for the series keeps following the user's defaults (user_settings.reader).
+ */
+export const seriesReaderSettings = pgTable(
+  "series_reader_settings",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    seriesId: uuid("series_id")
+      .notNull()
+      .references(() => series.id, { onDelete: "cascade" }),
+    reader: jsonb("reader").$type<Partial<ReaderSettings>>().notNull().default({}),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.seriesId] })],
+);
+
 // ---------- manga (shared by all users, scraped once) ----------
 
 export const series = pgTable(

@@ -7,7 +7,7 @@ import type { ReaderSettings } from "@/db/schema";
 import { getDb } from "@/db";
 import { requireUser } from "@/lib/auth/session";
 import * as library from "@/lib/library";
-import { saveReaderSettings } from "@/lib/settings";
+import { makeSeriesSettingsDefault, resetSeriesReaderSettings, saveSeriesReaderSettings } from "@/lib/settings";
 import { SourceError } from "@/lib/sources";
 
 export interface ActionMessage {
@@ -80,7 +80,26 @@ export async function saveProgress(chapterId: string, page: number, completed: b
   await library.saveProgress(await getDb(), user.id, id.parse(chapterId), z.number().int().min(0).parse(page), completed === true);
 }
 
-export async function updateReaderSettings(changes: Partial<ReaderSettings>): Promise<ReaderSettings> {
+/** The reader saves setting changes for the series being read. */
+export async function updateSeriesReaderSettings(seriesId: string, changes: Partial<ReaderSettings>): Promise<ReaderSettings> {
   const user = await requireUser();
-  return saveReaderSettings(await getDb(), user.id, changes);
+  return saveSeriesReaderSettings(await getDb(), user.id, id.parse(seriesId), changes);
+}
+
+/** Drop a series' own settings so it follows your defaults again. */
+export async function resetSeriesSettings(seriesId: string): Promise<ReaderSettings> {
+  const user = await requireUser();
+  return resetSeriesReaderSettings(await getDb(), user.id, id.parse(seriesId));
+}
+
+/** Make this series' settings your defaults for every series you haven't customised. */
+export async function makeSeriesSettingsTheDefault(seriesId: string): Promise<ReaderSettings> {
+  const user = await requireUser();
+  return makeSeriesSettingsDefault(await getDb(), user.id, id.parse(seriesId));
+}
+
+export async function markUnreadFrom(chapterId: string): Promise<void> {
+  const user = await requireUser();
+  await library.markUnreadFrom(await getDb(), user.id, id.parse(chapterId));
+  refresh();
 }
