@@ -56,7 +56,13 @@ def test_no_match_returns_empty():
     assert select_chapters(CHAPTERS, "50-60") == []
 
 
-@pytest.mark.parametrize("bad", ["", "abc", "5-2", "1-2-3", "-", "1,,2"])
+def test_stray_commas_are_ignored():
+    # The web page applies the range as you type, so "1-3," must not be an error.
+    assert numbers(select_chapters(CHAPTERS, "1-3,")) == [1, 2, 3]
+    assert numbers(select_chapters(CHAPTERS, "1,,3")) == [1, 3]
+
+
+@pytest.mark.parametrize("bad", ["", " ", ",", " , ", "abc", "5-2", "1-2-3", "-", "1,abc"])
 def test_invalid_specs(bad):
     with pytest.raises(ValueError):
         parse_spec(bad)

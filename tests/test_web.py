@@ -104,3 +104,14 @@ def test_cancel_stops_pipeline_and_keeps_images(tmp_path, fake_site):
                         work_root=tmp_path / "work", delay=0, on_progress=on_progress, cancel=cancel)
     assert not (tmp_path / "out.pdf").exists()
     assert any((tmp_path / "work" / series.id).iterdir())  # kept for resuming
+
+
+def test_pdf_is_ascending_even_if_given_descending(tmp_path, fake_site):
+    import pikepdf
+
+    series = get_series(fake_site, SERIES_URL)
+    chapters = [c for c in get_chapters(fake_site, series.id) if c.number is not None]
+    out = tmp_path / "out.pdf"
+    download_to_pdf(fake_site, series, list(reversed(chapters)), out, work_root=tmp_path / "work", delay=0)
+    with pikepdf.open(out) as pdf, pdf.open_outline() as outline:
+        assert [i.title for i in outline.root] == ["Chapter 1", "Chapter 2", "Chapter 3"]

@@ -34,12 +34,25 @@ function formatSize(bytes) {
   return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
 }
 
+// Delays fn until calls stop for `ms`. `.flush()` runs a pending call right away
+// (and returns its promise), so a click can't act on a half-applied value.
 function debounce(fn, ms) {
-  let timer;
-  return (...args) => {
+  let timer = null;
+  const debounced = (...args) => {
     clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), ms);
+    timer = setTimeout(() => { timer = null; fn(...args); }, ms);
   };
+  debounced.flush = () => {
+    if (timer === null) return Promise.resolve();
+    clearTimeout(timer);
+    timer = null;
+    return Promise.resolve(fn());
+  };
+  debounced.cancel = () => {
+    clearTimeout(timer);
+    timer = null;
+  };
+  return debounced;
 }
 
 // ---------- loading a series ----------
@@ -92,6 +105,7 @@ function renderSeries(series) {
     return label;
   }));
 
+  cancelPendingRange();
   $("#range").value = "";
   $("#range-error").hidden = true;
   $("#series").hidden = false;
@@ -154,11 +168,15 @@ $("#grid").addEventListener("click", (event) => {
     state.selected.delete(chapters[index].id);
   }
   state.lastClicked = index;
+  cancelPendingRange();
   $("#range-error").hidden = true;
   setSelection(state.selected);
 });
 
+let rangeRequest = 0; // only the newest /api/select reply may change the selection
+
 const applyRange = debounce(async () => {
+  const request = ++rangeRequest;
   const spec = $("#range").value.trim();
   const error = $("#range-error");
   if (!spec) {
@@ -172,15 +190,28 @@ const applyRange = debounce(async () => {
       spec,
       include_extras: $("#include-extras").checked,
     });
+    if (request !== rangeRequest) return;
     error.hidden = true;
     setSelection(chapter_ids, { updateRange: false });
   } catch (e) {
+    if (request !== rangeRequest) return;
     error.textContent = e.message;
     error.hidden = false;
+    // Don't leave the previous chapters ticked under text that no longer matches them.
+    setSelection([], { updateRange: false });
   }
 }, 300);
 
+// Clicking a chip or a button overrides whatever range is still waiting to apply.
+function cancelPendingRange() {
+  applyRange.cancel();
+  rangeRequest++;
+}
+
 $("#range").addEventListener("input", applyRange);
+$("#range").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") applyRange.flush();
+});
 $("#include-extras").addEventListener("change", applyRange);
 
 document.querySelectorAll("[data-select]").forEach((button) => {
@@ -188,6 +219,7 @@ document.querySelectorAll("[data-select]").forEach((button) => {
     const chapters = state.series.chapters;
     const numbered = chapters.filter((c) => c.number !== null);
     const choice = button.dataset.select;
+    cancelPendingRange();
     $("#range-error").hidden = true;
     if (choice === "all") setSelection(numbered.map((c) => c.id));
     if (choice === "none") setSelection([]);
@@ -199,6 +231,8 @@ document.querySelectorAll("[data-select]").forEach((button) => {
 
 $("#download-btn").addEventListener("click", async () => {
   showMessage("");
+  await applyRange.flush(); // a range typed a moment ago must count
+  if (state.selected.size === 0) return;
   try {
     const job = await api("POST", "/api/jobs", {
       series_id: state.series.id,

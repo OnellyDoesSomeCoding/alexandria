@@ -14,7 +14,7 @@ from .client import Client
 from .downloader import Cancelled, download_pages
 from .pdf import build_pdf
 from .ranges import format_number
-from .scraper import Chapter, Series, get_page_urls
+from .scraper import Chapter, Series, get_page_urls, sort_chapters
 
 WORK_ROOT = Path(".mangadl-tmp")
 
@@ -64,6 +64,7 @@ def download_to_pdf(
     Raises Cancelled if the cancel event is set.
     """
     notify = on_progress or (lambda progress: None)
+    chapters = sort_chapters(chapters)  # the PDF is always in ascending chapter order
     work_dir = work_root / series.id
     total = len(chapters)
     downloaded: list[tuple[str, list[Path]]] = []

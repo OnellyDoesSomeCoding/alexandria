@@ -25,12 +25,16 @@ def parse_spec(spec: str) -> list[Span] | None:
     spec = spec.strip().lower()
     if spec in ("all", "*"):
         return None
+    items = [raw.strip() for raw in spec.split(",")]
+    if not any(items):
+        raise ValueError("Empty chapter selection. Examples: 1-20, 5, 1-5,8,10-12, 100-, all")
     spans: list[Span] = []
-    for raw in spec.split(","):
-        item = raw.strip()
+    for item in items:
+        if not item:  # stray comma, e.g. "1-5," while still typing
+            continue
         match = ITEM_RE.match(item)
-        if not item or not match or item == "-":
-            raise ValueError(f"Invalid chapter selection {raw.strip()!r}. Examples: 1-20, 5, 1-5,8,10-12, 100-, all")
+        if not match or item == "-":
+            raise ValueError(f"Invalid chapter selection {item!r}. Examples: 1-20, 5, 1-5,8,10-12, 100-, all")
         if match.group("single"):
             n = float(match.group("single"))
             spans.append(Span(n, n))

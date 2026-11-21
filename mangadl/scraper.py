@@ -11,6 +11,7 @@ directly and never touch the ad-laden reader page:
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlparse
 
@@ -22,6 +23,9 @@ SERIES_URL_RE = re.compile(r"^https?://(?:www\.)?weebcentral\.com/series/([0-9A-
 CHAPTER_HREF_RE = re.compile(r"/chapters/([0-9A-Za-z]{26})")
 CHAPTER_NUMBER_RE = re.compile(r"\b(?:chapter|episode|ch\.?|ep\.?)\s*(\d+(?:\.\d+)?)", re.I)
 BARE_NUMBER_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*$")
+# A series' own chapter word, like "Hunt 106" or "Lesson 5": one word, then the number.
+LABELLED_NUMBER_RE = re.compile(r"^\s*([A-Za-z]+)\.?\s*#?(\d+(?:\.\d+)?)\b")
+PAGE_NUMBER_RE = re.compile(r"(\d+)\.[A-Za-z0-9]+$")  # trailing number in the filename
 
 
 @dataclass(frozen=True)
@@ -53,9 +57,36 @@ def parse_series_url(url: str) -> tuple[str, str]:
     return match.group(1).upper(), match.group(2) or ""
 
 
-def chapter_number(name: str) -> float | None:
+def chapter_number(name: str, label: str | None = None) -> float | None:
+    """The chapter number in a name, or None for an unnumbered extra.
+
+    `label` is the series' own word for a chapter (see series_chapter_label), so
+    "Hunt 12" counts as chapter 12 when label is "hunt".
+    """
     match = CHAPTER_NUMBER_RE.search(name) or BARE_NUMBER_RE.match(name)
-    return float(match.group(1)) if match else None
+    if match:
+        return float(match.group(1))
+    if label:
+        labelled = LABELLED_NUMBER_RE.match(name)
+        if labelled and labelled.group(1).lower() == label:
+            return float(labelled.group(2))
+    return None
+
+
+def series_chapter_label(names: list[str]) -> str | None:
+    """Find the word a series uses instead of "Chapter" ("Hunt 106", "Lesson 5").
+
+    Only used when at least half the chapters start with that same word and a
+    number, so occasional "Special 1"-style extras don't get numbered.
+    """
+    unnumbered = [n for n in names if chapter_number(n) is None]
+    counts = Counter(
+        m.group(1).lower() for m in map(LABELLED_NUMBER_RE.match, unnumbered) if m
+    )
+    if not counts:
+        return None
+    label, count = counts.most_common(1)[0]
+    return label if count >= 2 and count * 2 >= len(names) else None
 
 
 def parse_series_title(html: str, fallback: str) -> str:
@@ -93,10 +124,33 @@ def _chapter_name(anchor) -> str:
     return anchor.get_text(" ", strip=True)[:80]
 
 
+def sort_chapters(chapters: list[Chapter]) -> list[Chapter]:
+    """Sort chapters ascending by number, whatever order the site listed them in.
+
+    Unnumbered extras stay right after the numbered chapter they followed in reading
+    order. Entries with the same number keep their listed order.
+    """
+    numbers = [c.number for c in chapters if c.number is not None]
+    descending_pairs = sum(a > b for a, b in zip(numbers, numbers[1:]))
+    ascending_pairs = sum(a < b for a, b in zip(numbers, numbers[1:]))
+    oriented = list(reversed(chapters)) if descending_pairs > ascending_pairs else list(chapters)
+
+    keyed = []
+    anchor = float("-inf")
+    for position, chapter in enumerate(oriented):
+        if chapter.number is not None:
+            anchor = chapter.number
+            keyed.append(((chapter.number, 0, position), chapter))
+        else:
+            keyed.append(((anchor, 1, position), chapter))
+    keyed.sort(key=lambda pair: pair[0])
+    return [chapter for _, chapter in keyed]
+
+
 def parse_chapter_list(html: str) -> list[Chapter]:
     """Return chapters in ascending (reading) order."""
     soup = BeautifulSoup(html, "html.parser")
-    chapters: list[Chapter] = []
+    entries: list[tuple[str, str]] = []
     seen: set[str] = set()
     for anchor in soup.select('a[href*="/chapters/"]'):
         match = CHAPTER_HREF_RE.search(anchor.get("href", ""))
@@ -104,13 +158,26 @@ def parse_chapter_list(html: str) -> list[Chapter]:
             continue
         chapter_id = match.group(1).upper()
         seen.add(chapter_id)
-        name = _chapter_name(anchor)
-        chapters.append(Chapter(id=chapter_id, name=name, number=chapter_number(name)))
+        entries.append((chapter_id, _chapter_name(anchor)))
+    label = series_chapter_label([name for _, name in entries])
+    chapters = [Chapter(id=cid, name=name, number=chapter_number(name, label)) for cid, name in entries]
+    return sort_chapters(chapters)
 
-    numbers = [c.number for c in chapters if c.number is not None]
-    if len(numbers) >= 2 and numbers[0] > numbers[-1]:  # site lists newest first
-        chapters.reverse()
-    return chapters
+
+def sort_pages(urls: list[str]) -> list[str]:
+    """Sort page URLs by the page number at the end of the filename (0001-002.png -> 2).
+
+    If any filename lacks a number, or two share one, the site's order is kept.
+    """
+    numbers = []
+    for url in urls:
+        match = PAGE_NUMBER_RE.search(urlparse(url).path)
+        if not match:
+            return urls
+        numbers.append(int(match.group(1)))
+    if len(set(numbers)) != len(numbers):
+        return urls
+    return [url for _, url in sorted(zip(numbers, urls))]
 
 
 def parse_page_images(html: str, base_url: str = BASE_URL) -> list[str]:
@@ -127,7 +194,7 @@ def parse_page_images(html: str, base_url: str = BASE_URL) -> list[str]:
             continue
         if absolute not in urls:
             urls.append(absolute)
-    return urls
+    return sort_pages(urls)
 
 
 def get_series(client: Client, url: str) -> Series:
