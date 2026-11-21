@@ -4,13 +4,11 @@ import type { ComponentProps } from "react";
 export const inputClass =
   "w-full rounded-md border border-neutral-300 bg-transparent px-3 py-2 outline-none focus:border-neutral-500 dark:border-neutral-700";
 
+export const buttonClass =
+  "inline-block rounded-md bg-neutral-900 px-4 py-2 font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900";
+
 export function Button({ className = "", ...props }: ComponentProps<"button">) {
-  return (
-    <button
-      className={`rounded-md bg-neutral-900 px-4 py-2 font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 ${className}`}
-      {...props}
-    />
-  );
+  return <button className={`${buttonClass} ${className}`} {...props} />;
 }
 
 export function SubtleButton({ className = "", ...props }: ComponentProps<"button">) {

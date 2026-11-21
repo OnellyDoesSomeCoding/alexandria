@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Suspense } from "react";
 import { logout } from "@/app/actions/auth";
 import { newFriendCode, unfriend } from "@/app/actions/friends";
@@ -63,7 +64,9 @@ async function Profile() {
           <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
             {friends.map((friend) => (
               <li key={friend.id} className="flex items-center justify-between py-2">
-                <span className="font-medium">{friend.username}</span>
+                <Link href={`/u/${encodeURIComponent(friend.username)}`} className="font-medium underline-offset-2 hover:underline">
+                  {friend.username}
+                </Link>
                 <form action={unfriend.bind(null, friend.id)}>
                   <SubtleButton type="submit">Remove</SubtleButton>
                 </form>
