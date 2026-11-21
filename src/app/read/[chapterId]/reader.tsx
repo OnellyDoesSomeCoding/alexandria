@@ -10,6 +10,10 @@ import type { ReaderChapter } from "@/lib/library";
 import { spreads } from "./spreads";
 
 const PRELOAD_AHEAD = 4;
+// Bar heights (header h-14, footer h-12). Paged modes lay pages out between the bars so nothing is covered.
+const TOP_BAR = 56;
+const BOTTOM_BAR = 48;
+const AVAILABLE_HEIGHT = "calc(100dvh - var(--top) - var(--bottom))";
 
 export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; initialSettings: ReaderSettings }) {
   const router = useRouter();
@@ -23,10 +27,36 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
   const strip = settings.layout === "strip";
   const rtl = settings.direction === "rtl";
 
+  // Double page: pages shown on their own. Wide pages (already a spread) automatically, plus pages the reader
+  // "shifted" at because the pairs had drifted. Shifts are remembered per chapter in this browser.
+  const [shifts, setShifts] = useState<number[]>([]);
+  const shiftKey = `alexandria:shifts:${chapter.id}`;
+  useEffect(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(shiftKey) ?? "[]");
+      if (Array.isArray(saved)) setShifts(saved.filter((n): n is number => Number.isInteger(n)));
+    } catch {
+      // storage unavailable (private mode, blocked): shifts just won't be remembered
+    }
+  }, [shiftKey]);
+  const saveShifts = useCallback(
+    (next: number[]) => {
+      setShifts(next);
+      try {
+        if (next.length) localStorage.setItem(shiftKey, JSON.stringify(next));
+        else localStorage.removeItem(shiftKey);
+      } catch {
+        // not remembered; still applies for this visit
+      }
+    },
+    [shiftKey],
+  );
+
   const wide = useMemo(() => new Set(Object.entries(sizes).filter(([, s]) => s.w > s.h * 1.1).map(([i]) => Number(i))), [sizes]);
+  const alone = useMemo(() => new Set([...wide, ...shifts]), [wide, shifts]);
   const groups = useMemo(
-    () => (settings.layout === "double" ? spreads(count, settings.coverAlone, wide) : chapter.pages.map((_, i) => [i])),
-    [settings.layout, settings.coverAlone, count, wide, chapter.pages],
+    () => (settings.layout === "double" ? spreads(count, settings.coverAlone, alone) : chapter.pages.map((_, i) => [i])),
+    [settings.layout, settings.coverAlone, count, alone, chapter.pages],
   );
   const viewIndex = Math.max(0, groups.findIndex((g) => g.includes(page)));
   const view = useMemo(() => groups[viewIndex] ?? [], [groups, viewIndex]);
@@ -77,6 +107,8 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
       else document.getElementById("chapter-end")?.scrollIntoView({ block: "center" });
       return;
     }
+    setShowUi(false); // turning pages means reading: give the page the whole screen
+    setPanelOpen(false);
     if (atEnd) {
       if (chapter.nextId) router.push(`/read/${chapter.nextId}`);
     } else if (viewIndex < groups.length - 1) {
@@ -92,16 +124,31 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
       if (page > 0) goTo(page - 1);
       return;
     }
+    setShowUi(false);
+    setPanelOpen(false);
     if (atEnd) setAtEnd(false);
     else if (viewIndex > 0) goTo(groups[viewIndex - 1][0]);
     else if (chapter.prevId) router.push(`/read/${chapter.prevId}`);
   }, [strip, page, goTo, atEnd, viewIndex, groups, chapter.prevId, router]);
 
-  // Keyboard: arrows follow the reading direction; space/page keys always go forward/back.
+  // Shift: the pair on screen is mismatched, so show its first page alone and re-pair from the next page on.
+  const canShift = settings.layout === "double" && !atEnd && view.length === 2;
+  const shift = useCallback(() => {
+    if (!canShift) return;
+    saveShifts([...shifts, view[0]].sort((a, b) => a - b));
+    setPage(view[1]); // now paired with the page after it
+    window.scrollTo(0, 0);
+  }, [canShift, saveShifts, shifts, view]);
+
+  // Keyboard: arrows follow the reading direction; space/page keys always go forward/back; S shifts the pairing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      const el = e.target;
+      // Leave typing alone; a focused slider keeps its own arrow keys but other shortcuts still work.
+      if (el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) return;
+      if (el instanceof HTMLInputElement && (el.type !== "range" || e.key.startsWith("Arrow") || e.key.startsWith("Page"))) return;
       if (e.key === "Escape") return setPanelOpen(false);
+      if (e.key === "s" || e.key === "S") return shift();
       const forward = rtl ? "ArrowLeft" : "ArrowRight";
       const back = rtl ? "ArrowRight" : "ArrowLeft";
       if (e.key === forward || (!strip && (e.key === " " || e.key === "PageDown"))) {
@@ -114,7 +161,7 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [next, prev, rtl, strip]);
+  }, [next, prev, rtl, strip, shift]);
 
   // Tap zones: outer thirds turn pages (paged modes), the middle shows/hides the bars.
   const onTap = (e: MouseEvent) => {
@@ -145,6 +192,31 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
       endObserver.disconnect();
     };
   }, [strip, count]);
+
+  // Long strip: bars hide while scrolling down (reading) and come back when scrolling up.
+  // Programmatic jumps (slider) don't count, so the bar you're using doesn't vanish under your finger.
+  useEffect(() => {
+    if (!strip || panelOpen) return;
+    let last = window.scrollY;
+    let queued = false;
+    const onScroll = () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        const y = window.scrollY;
+        if (Math.abs(y - last) < 12) return;
+        const down = y > last;
+        last = y;
+        const jump = pendingJump.current;
+        if (jump && performance.now() < jump.until) return;
+        if (down && y > TOP_BAR) setShowUi(false);
+        else if (!down) setShowUi(true);
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [strip, panelOpen]);
 
   // Long strip: jump to the saved page once, on open.
   const resumed = useRef(false);
@@ -201,11 +273,16 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
     />
   );
 
+  // --top/--bottom: how much of the screen the bars take right now (0 when hidden).
+  const bars = { "--top": showUi ? `${TOP_BAR}px` : "0px", "--bottom": showUi ? `${BOTTOM_BAR}px` : "0px" } as CSSProperties;
+
   return (
-    <div className="min-h-dvh bg-neutral-950 text-neutral-100" onClick={onTap}>
+    <div className="min-h-dvh bg-neutral-950 text-neutral-100" style={bars} onClick={onTap}>
       {strip ? (
         <div className="mx-auto flex flex-col items-center" style={{ gap: settings.stripGap, maxWidth: stripMaxWidth(settings) }}>
-          {chapter.pages.map((_, i) => img(i, stripImageClass(settings.fit)))}
+          {/* Keeps the top of page 1 clear of the bar on open; fixed height so hiding the bar doesn't shift the strip. */}
+          <div aria-hidden style={{ height: TOP_BAR, flexShrink: 0 }} />
+          {chapter.pages.map((_, i) => img(i, stripImageClass(settings.fit), { scrollMarginTop: TOP_BAR }))}
           <EndPanel chapter={chapter} />
         </div>
       ) : atEnd ? (
@@ -213,15 +290,26 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
           <EndPanel chapter={chapter} />
         </div>
       ) : (
-        <div className={`flex min-h-dvh ${settings.fit === "width" ? "items-start" : "items-center"} ${rtl ? "flex-row-reverse" : ""} justify-center overflow-x-auto`}>
-          {view.map((i) => img(i, pagedImageClass(settings.fit, view.length)))}
+        <div
+          // dir=rtl (not row-reverse): the right edge becomes the start, so a too-wide spread opens on its first page
+          dir={rtl ? "rtl" : "ltr"}
+          className="flex min-h-dvh overflow-x-auto"
+          style={{
+            paddingTop: "var(--top)",
+            paddingBottom: "var(--bottom)",
+            // "safe": center when the pages fit, otherwise start at the edge so nothing is cut off out of reach
+            justifyContent: "safe center",
+            alignItems: settings.fit === "width" ? "flex-start" : "safe center",
+          }}
+        >
+          {view.map((i) => img(i, pagedImageClass(settings.fit, view.length), pagedImageStyle(settings.fit, view.length)))}
         </div>
       )}
 
       {showUi && (
         <>
           <header
-            className="fixed inset-x-0 top-0 z-10 flex items-center gap-3 bg-neutral-900/95 px-4 py-2 text-sm backdrop-blur"
+            className="fixed inset-x-0 top-0 z-10 flex h-14 items-center gap-3 bg-neutral-900/95 px-4 text-sm backdrop-blur"
             onClick={(e) => e.stopPropagation()}
           >
             <Link href={`/series/${chapter.seriesId}`} className="shrink-0 text-neutral-400 hover:text-white" aria-label="Back to series">
@@ -231,6 +319,29 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
               <p className="truncate font-medium">{chapter.name}</p>
               <p className="truncate text-xs text-neutral-400">{chapter.seriesTitle}</p>
             </div>
+            {settings.layout === "double" && (
+              <>
+                {shifts.length > 0 && (
+                  <button
+                    type="button"
+                    className="rounded border border-neutral-700 px-2 py-1 text-neutral-400"
+                    title="Undo all shifts in this chapter"
+                    onClick={() => saveShifts([])}
+                  >
+                    Reset
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="rounded border border-neutral-700 px-2 py-1 disabled:opacity-40"
+                  title="Pages don't line up? Show this pair's first page alone and re-pair from the next page (S)"
+                  disabled={!canShift}
+                  onClick={shift}
+                >
+                  Shift
+                </button>
+              </>
+            )}
             <DownloadChapterButton seriesTitle={chapter.seriesTitle} chapter={chapter} />
             <button type="button" className="rounded border border-neutral-700 px-2 py-1" onClick={() => setPanelOpen((v) => !v)} aria-expanded={panelOpen}>
               Settings
@@ -240,7 +351,7 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
           {panelOpen && <SettingsPanel settings={settings} onChange={change} />}
 
           <footer
-            className="fixed inset-x-0 bottom-0 z-10 flex items-center gap-3 bg-neutral-900/95 px-4 py-2 text-sm backdrop-blur"
+            className="fixed inset-x-0 bottom-0 z-10 flex h-12 items-center gap-3 bg-neutral-900/95 px-4 text-sm backdrop-blur"
             onClick={(e) => e.stopPropagation()}
           >
             <ChapterLink id={rtl ? chapter.nextId : chapter.prevId} label={rtl ? "Next ›" : "‹ Prev"} />
@@ -289,12 +400,19 @@ function pagedImageClass(fit: ReaderFit, onScreen: number): string {
     case "width":
       return half ? "w-1/2 h-auto" : "w-full h-auto";
     case "height":
-      return "h-dvh w-auto max-w-none";
+      return "w-auto max-w-none shrink-0";
     case "both":
-      return `max-h-dvh w-auto object-contain ${half ? "max-w-[50%]" : "max-w-full"}`;
+      return `w-auto object-contain ${half ? "max-w-[50%]" : "max-w-full"}`;
     default:
-      return "max-w-none";
+      return "max-w-none shrink-0";
   }
+}
+
+/** Heights are the space between the bars, so a fitted page is never hidden behind them. */
+function pagedImageStyle(fit: ReaderFit, onScreen: number): CSSProperties | undefined {
+  if (fit === "height") return { height: AVAILABLE_HEIGHT };
+  if (fit === "both") return { maxHeight: AVAILABLE_HEIGHT, maxWidth: onScreen > 1 ? "50%" : "100%" };
+  return undefined;
 }
 
 function ChapterLink({ id, label }: { id: string | null; label: string }) {

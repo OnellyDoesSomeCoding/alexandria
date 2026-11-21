@@ -12,6 +12,10 @@ describe("double-page spreads", () => {
     expect(spreads(7, true, new Set([3]))).toEqual([[0], [1, 2], [3], [4, 5], [6]]);
     expect(spreads(5, false, new Set([1]))).toEqual([[0], [1], [2, 3], [4]]);
   });
+  it("a shift at a page re-pairs everything after it", () => {
+    // Reading [7|8] and pressing Shift marks 7 to stand alone: pairs continue [8|9], [10|11]...
+    expect(spreads(12, true, new Set([7]))).toEqual([[0], [1, 2], [3, 4], [5, 6], [7], [8, 9], [10, 11]]);
+  });
   it("handles tiny chapters", () => {
     expect(spreads(0, true, new Set())).toEqual([]);
     expect(spreads(1, false, new Set())).toEqual([[0]]);
