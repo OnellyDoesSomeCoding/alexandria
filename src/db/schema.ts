@@ -75,7 +75,8 @@ export type ReaderFit = "width" | "height" | "both" | "original";
 export interface ReaderSettings {
   layout: ReaderLayout;
   fit: ReaderFit;
-  direction: "ltr" | "rtl";
+  direction: "ltr" | "rtl"; // page order: which page of a spread sits on the right
+  turn: "ltr" | "rtl"; // page turning: "ltr" = right side / right arrow goes forward, "rtl" = left goes forward
   coverAlone: boolean; // double-page: show the first page by itself
   stripGap: number; // px between pages in long strip
   maxWidth: number; // px cap for long strip, 0 = none

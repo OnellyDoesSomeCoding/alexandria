@@ -7,6 +7,7 @@ export const DEFAULT_READER: ReaderSettings = {
   layout: "strip",
   fit: "width",
   direction: "ltr",
+  turn: "ltr",
   coverAlone: true,
   stripGap: 0,
   maxWidth: 900,
@@ -17,6 +18,7 @@ export const readerSettingsSchema = z
     layout: z.enum(["single", "double", "strip"]),
     fit: z.enum(["width", "height", "both", "original"]),
     direction: z.enum(["ltr", "rtl"]),
+    turn: z.enum(["ltr", "rtl"]),
     coverAlone: z.boolean(),
     stripGap: z.number().int().min(0).max(100),
     maxWidth: z.number().int().min(0).max(4000),
@@ -27,7 +29,9 @@ export async function getReaderSettings(db: DB, userId: string): Promise<ReaderS
   const [row] = await db.select({ reader: userSettings.reader }).from(userSettings).where(eq(userSettings.userId, userId));
   // Ignore anything stored by an older version that no longer validates.
   const saved = readerSettingsSchema.safeParse(row?.reader ?? {});
-  return { ...DEFAULT_READER, ...(saved.success ? saved.data : {}) };
+  const data = saved.success ? saved.data : {};
+  // Page turning used to follow the direction; settings saved before it was separate keep behaving the same.
+  return { ...DEFAULT_READER, turn: data.direction ?? DEFAULT_READER.turn, ...data };
 }
 
 export async function saveReaderSettings(db: DB, userId: string, changes: unknown): Promise<ReaderSettings> {

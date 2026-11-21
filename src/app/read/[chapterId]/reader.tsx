@@ -25,7 +25,8 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
   const [sizes, setSizes] = useState<Record<number, { w: number; h: number }>>({});
   const count = chapter.pages.length;
   const strip = settings.layout === "strip";
-  const rtl = settings.direction === "rtl";
+  const rtl = settings.direction === "rtl"; // page order
+  const leftForward = settings.turn === "rtl"; // controls: left side / left arrow goes to the next page
 
   // Double page: pages shown on their own. Wide pages (already a spread) automatically, plus pages the reader
   // "shifted" at because the pairs had drifted. Shifts are remembered per chapter in this browser.
@@ -140,7 +141,7 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
     window.scrollTo(0, 0);
   }, [canShift, saveShifts, shifts, view]);
 
-  // Keyboard: arrows follow the reading direction; space/page keys always go forward/back; S shifts the pairing.
+  // Keyboard: arrows follow the page-turn setting; space/page keys always go forward/back; S shifts the pairing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target;
@@ -149,8 +150,8 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
       if (el instanceof HTMLInputElement && (el.type !== "range" || e.key.startsWith("Arrow") || e.key.startsWith("Page"))) return;
       if (e.key === "Escape") return setPanelOpen(false);
       if (e.key === "s" || e.key === "S") return shift();
-      const forward = rtl ? "ArrowLeft" : "ArrowRight";
-      const back = rtl ? "ArrowRight" : "ArrowLeft";
+      const forward = leftForward ? "ArrowLeft" : "ArrowRight";
+      const back = leftForward ? "ArrowRight" : "ArrowLeft";
       if (e.key === forward || (!strip && (e.key === " " || e.key === "PageDown"))) {
         e.preventDefault();
         next();
@@ -161,7 +162,7 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [next, prev, rtl, strip, shift]);
+  }, [next, prev, leftForward, strip, shift]);
 
   // Tap zones: outer thirds turn pages (paged modes), the middle shows/hides the bars.
   const onTap = (e: MouseEvent) => {
@@ -169,7 +170,7 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
     const x = e.clientX / window.innerWidth;
     if (strip || (x > 0.3 && x < 0.7)) return setShowUi((v) => !v);
     const leftSide = x <= 0.3;
-    if (leftSide !== rtl) prev();
+    if (leftSide !== leftForward) prev();
     else next();
   };
 
@@ -354,7 +355,7 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
             className="fixed inset-x-0 bottom-0 z-10 flex h-12 items-center gap-3 bg-neutral-900/95 px-4 text-sm backdrop-blur"
             onClick={(e) => e.stopPropagation()}
           >
-            <ChapterLink id={rtl ? chapter.nextId : chapter.prevId} label={rtl ? "Next ›" : "‹ Prev"} />
+            <ChapterLink id={leftForward ? chapter.nextId : chapter.prevId} label={leftForward ? "‹ Next" : "‹ Prev"} />
             <input
               type="range"
               min={1}
@@ -363,12 +364,12 @@ export function Reader({ chapter, initialSettings }: { chapter: ReaderChapter; i
               onChange={(e) => goTo(Number(e.target.value) - 1)}
               aria-label="Page"
               className="min-w-0 flex-1 accent-neutral-200"
-              dir={rtl ? "rtl" : "ltr"}
+              dir={leftForward ? "rtl" : "ltr"}
             />
             <span className="w-16 shrink-0 text-center tabular-nums text-neutral-400">
               {page + 1}/{count}
             </span>
-            <ChapterLink id={rtl ? chapter.prevId : chapter.nextId} label={rtl ? "‹ Prev" : "Next ›"} />
+            <ChapterLink id={leftForward ? chapter.prevId : chapter.nextId} label={leftForward ? "Prev ›" : "Next ›"} />
           </footer>
         </>
       )}
@@ -490,14 +491,25 @@ function SettingsPanel({ settings, onChange }: { settings: ReaderSettings; onCha
         ]}
         onChange={(fit) => onChange({ fit })}
       />
+      {settings.layout !== "strip" && (
+        <Segmented
+          label="Page direction"
+          value={settings.direction}
+          options={[
+            ["ltr", "Left to right"],
+            ["rtl", "Right to left"],
+          ]}
+          onChange={(direction) => onChange({ direction })}
+        />
+      )}
       <Segmented
-        label="Direction"
-        value={settings.direction}
+        label="Page turn"
+        value={settings.turn}
         options={[
-          ["ltr", "Left to right"],
-          ["rtl", "Right to left"],
+          ["ltr", "Right side = next"],
+          ["rtl", "Left side = next"],
         ]}
-        onChange={(direction) => onChange({ direction })}
+        onChange={(turn) => onChange({ turn })}
       />
       {settings.layout === "double" && (
         <label className="flex items-center gap-2">
