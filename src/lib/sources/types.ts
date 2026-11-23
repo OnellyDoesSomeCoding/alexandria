@@ -13,6 +13,10 @@ export interface ChapterInfo {
   number: number | null; // null for unnumbered extras/specials
 }
 
+export interface SearchResult extends SeriesInfo {
+  details: string[]; // short facts for the result card, e.g. ["Manga", "2022", "Ongoing"]
+}
+
 export interface Source {
   key: string; // stored in the database, never change it once used, e.g. "weebcentral"
   name: string; // shown to users
@@ -25,6 +29,8 @@ export interface Source {
   getChapters(seriesId: string): Promise<ChapterInfo[]>;
   /** Page image URLs in reading order. */
   getPageUrls(chapterId: string): Promise<string[]>;
+  /** Optional: series matching a title, best match first. Sources without it are added by pasting a link only. */
+  search?(query: string): Promise<SearchResult[]>;
 }
 
 export class SourceError extends Error {

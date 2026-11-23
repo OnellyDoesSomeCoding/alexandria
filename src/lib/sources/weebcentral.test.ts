@@ -1,14 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   chapterNumber,
   parseChapterList,
   parsePageImages,
+  parseSearchResults,
   parseSeries,
   parseSeriesUrl,
   sortChapters,
   sortPages,
 } from "./weebcentral";
-import { resolveLink } from "./index";
+import { clearSearchCache, resolveLink, searchSources } from "./index";
+import { type SearchResult, type Source, SourceError } from "./types";
 
 const ID_A = "01J76XYFD97DRQQKK75FZB7PQA";
 const ID_B = "01J76XYFD97DRQQKK75FZB7PQB";
@@ -176,5 +178,108 @@ describe("series page", () => {
     expect(parseSeries('<meta property="og:image" content="/cover/x.webp">', "ID", "").coverUrl).toBe(
       "https://weebcentral.com/cover/x.webp",
     );
+  });
+});
+
+// Shaped like WeebCentral's /search/data "Full Display" fragment (trimmed): the cover link nests <article>s.
+const searchCard = (id: string, slug: string, title: string, facts: string) => `
+<article class="bg-base-300 flex gap-4 p-4">
+  <section class="w-full lg:w-[25%] xl:w-[20%]">
+    <a href="https://weebcentral.com/series/${id}/${slug}">
+      <article class="hidden lg:block w-full aspect-4/6 overflow-hidden">
+        <picture>
+          <source srcset="https://temp.compsci88.com/cover/normal/${id}.webp" media="(min-width: 768px)" type="image/webp">
+          <source srcset="https://temp.compsci88.com/cover/small/${id}.webp" type="image/webp">
+          <img src="https://temp.compsci88.com/cover/fallback/${id}.jpg" alt="${title} cover">
+        </picture>
+      </article>
+      <article class="lg:hidden relative overflow-hidden"><div class="truncate">${title}</div></article>
+    </a>
+  </section>
+  <section class="hidden lg:block">
+    <div class="text-lg font-semibold flex items-center gap-1">
+      <span class="tooltip tooltip-bottom" data-tip="${title}">
+        <a href="https://weebcentral.com/series/${id}/${slug}" class="line-clamp-1 link link-hover">${title}</a>
+      </span>
+    </div>
+    ${facts}
+    <div><strong class="opacity-70">Author(s): </strong><span><a href="https://weebcentral.com/search?author=X">X</a></span></div>
+  </section>
+</article>`;
+const fact = (label: string, value: string) => `<div class="opacity-70"><strong>${label}:</strong>\n<span>${value}</span></div>`;
+
+describe("search results", () => {
+  it("reads title, cover, link and facts for each series once", () => {
+    const html =
+      searchCard(ID_A, "One-Piece", "One Piece", fact("Year", "1997") + fact("Status", "Ongoing") + fact("Type", "Manga")) +
+      searchCard(ID_B, "The-One", "The One", fact("Type", "Manhua")) +
+      `<button hx-get="/search/data?limit=32&amp;offset=32&amp;text=one">View More</button>`;
+    expect(parseSearchResults(html)).toEqual([
+      {
+        sourceId: ID_A,
+        title: "One Piece",
+        url: `https://weebcentral.com/series/${ID_A}/One-Piece`,
+        coverUrl: `https://temp.compsci88.com/cover/small/${ID_A}.webp`,
+        details: ["Manga", "1997", "Ongoing"],
+      },
+      {
+        sourceId: ID_B,
+        title: "The One",
+        url: `https://weebcentral.com/series/${ID_B}/The-One`,
+        coverUrl: `https://temp.compsci88.com/cover/small/${ID_B}.webp`,
+        details: ["Manhua"],
+      },
+    ]);
+  });
+
+  it("returns nothing for the 'No results found' alert", () => {
+    expect(parseSearchResults('<div role="alert" class="alert alert-warning"><span>No results found</span></div>')).toEqual([]);
+  });
+});
+
+describe("searchSources", () => {
+  const result: SearchResult = { sourceId: "S1", title: "Found", url: "https://x/1", coverUrl: null, details: [] };
+  const fakeSource = (key: string, search?: Source["search"]): Source => ({
+    key,
+    name: key.toUpperCase(),
+    matches: () => false,
+    parseSeriesId: () => "",
+    getSeries: async () => ({ ...result }),
+    getChapters: async () => [],
+    getPageUrls: async () => [],
+    search,
+  });
+
+  beforeEach(() => clearSearchCache());
+
+  it("skips short queries and sources without search", async () => {
+    const search = vi.fn(async () => [result]);
+    expect(await searchSources(" a ", [fakeSource("a", search)])).toEqual([]);
+    expect(await searchSources("found", [fakeSource("nosearch")])).toEqual([]);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it("caches repeat searches for ten minutes, ignoring case and spacing", async () => {
+    const search = vi.fn(async () => [result]);
+    const list = [fakeSource("a", search)];
+    await searchSources("One  Piece", list, 0);
+    await searchSources(" one piece", list, 9 * 60 * 1000);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(search).toHaveBeenCalledWith("One Piece");
+    await searchSources("one piece", list, 11 * 60 * 1000);
+    expect(search).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a failing source without hiding the others, and doesn't cache the failure", async () => {
+    const failing = vi.fn(async (): Promise<SearchResult[]> => {
+      throw new SourceError("blocked by the site", "blocked");
+    });
+    const list = [fakeSource("bad", failing), fakeSource("good", async () => [result])];
+    expect(await searchSources("found", list)).toEqual([
+      { sourceKey: "bad", sourceName: "BAD", results: [], error: "blocked by the site" },
+      { sourceKey: "good", sourceName: "GOOD", results: [result] },
+    ]);
+    await searchSources("found", list);
+    expect(failing).toHaveBeenCalledTimes(2);
   });
 });

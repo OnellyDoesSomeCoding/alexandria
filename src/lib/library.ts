@@ -335,6 +335,17 @@ export async function getPageUrl(db: DB, chapterId: string, index: number): Prom
   return row?.pageUrls?.[index] ?? null;
 }
 
+/** For search results: which of a source's series are already in the user's library, as sourceId -> our series id. */
+export async function librarySeriesBySourceId(db: DB, userId: string, source: string, sourceIds: string[]): Promise<Map<string, string>> {
+  if (sourceIds.length === 0) return new Map();
+  const rows = await db
+    .select({ sourceId: series.sourceId, id: series.id })
+    .from(series)
+    .innerJoin(subscriptions, and(eq(subscriptions.seriesId, series.id), eq(subscriptions.userId, userId)))
+    .where(and(eq(series.source, source), inArray(series.sourceId, sourceIds)));
+  return new Map(rows.map((r) => [r.sourceId, r.id]));
+}
+
 /** Map of seriesId -> subscribed, for a set of series (used on friends' pages). */
 export async function subscribedAmong(db: DB, userId: string, seriesIds: string[]): Promise<Set<string>> {
   if (seriesIds.length === 0) return new Set();

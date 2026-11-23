@@ -3,6 +3,7 @@ import { SeriesCard } from "@/components/series-card";
 import { getDb } from "@/db";
 import { requireUser } from "@/lib/auth/session";
 import { getLibrary } from "@/lib/library";
+import { SearchForm } from "./search/search-form";
 import { SubscribeForm } from "./subscribe-form";
 
 export default function LibraryPage() {
@@ -10,7 +11,8 @@ export default function LibraryPage() {
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-2">
         <h1 className="text-xl font-semibold">Your library</h1>
-        <p className="text-sm text-neutral-500">Paste a WeebCentral series link to subscribe.</p>
+        <p className="text-sm text-neutral-500">Search WeebCentral by title, or paste a series link to subscribe.</p>
+        <SearchForm />
         <SubscribeForm />
       </section>
       <Suspense fallback={<p className="text-neutral-500">Loading your library…</p>}>

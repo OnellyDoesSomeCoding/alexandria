@@ -4,12 +4,13 @@
  *   /series/{id}/{slug}                    -> title, cover
  *   /series/{id}/full-chapter-list         -> one <a href=".../chapters/{chapterId}"> per chapter
  *   /chapters/{chapterId}/images?...       -> the page <img> tags
+ *   /search/data?text=...                  -> one <article> per matching series (32 per page)
  */
 
 import * as cheerio from "cheerio";
 import type { Element } from "domhandler";
 import { fetchText } from "./http";
-import { type ChapterInfo, type SeriesInfo, type Source, SourceError } from "./types";
+import { type ChapterInfo, type SearchResult, type SeriesInfo, type Source, SourceError } from "./types";
 
 export const BASE_URL = "https://weebcentral.com";
 const SERIES_URL_RE = /^https?:\/\/(?:www\.)?weebcentral\.com\/series\/([0-9A-Za-z]{26})(?:\/([^/?#]*))?/i;
@@ -151,6 +152,52 @@ export function parsePageImages(html: string): string[] {
   return sortPages(urls);
 }
 
+/**
+ * Results from the "Full Display" search fragment. Each result is an <article> holding a cover link and a
+ * details section with "Year:", "Status:" and "Type:" rows. Covers nest their own <article>s, so results are
+ * found by their series links rather than by tag.
+ */
+export function parseSearchResults(html: string): SearchResult[] {
+  const $ = cheerio.load(html);
+  const results: SearchResult[] = [];
+  const seen = new Set<string>();
+  for (const anchor of $('a[href*="/series/"]').toArray()) {
+    const href = new URL($(anchor).attr("href") ?? "", BASE_URL).href;
+    const m = SERIES_URL_RE.exec(href);
+    if (!m) continue;
+    const id = m[1].toUpperCase();
+    if (seen.has(id)) continue;
+    seen.add(id);
+
+    const card = $(anchor).parents("article").last();
+    const img = card.find("picture img").first();
+    const title =
+      card.find(`span[data-tip] > a[href*="${m[1]}"]`).first().text().replace(/\s+/g, " ").trim() ||
+      img.attr("alt")?.replace(/\s*cover$/i, "").trim() ||
+      $(anchor).text().replace(/\s+/g, " ").trim() ||
+      (m[2] ?? id).replace(/-/g, " ");
+    const small = card.find('source[srcset*="/small/"]').first().attr("srcset");
+    const cover = small ?? img.attr("src");
+    const fact = (label: string) =>
+      card
+        .find("strong")
+        .filter((_, el) => $(el).text().trim().toLowerCase() === `${label}:`)
+        .first()
+        .next("span")
+        .text()
+        .trim();
+
+    results.push({
+      sourceId: id,
+      title,
+      url: `${BASE_URL}/series/${id}/${m[2] ?? ""}`,
+      coverUrl: cover ? new URL(cover, BASE_URL).href : null,
+      details: [fact("type"), fact("year"), fact("status")].filter(Boolean),
+    });
+  }
+  return results;
+}
+
 export const weebcentral: Source = {
   key: "weebcentral",
   name: "WeebCentral",
@@ -179,5 +226,23 @@ export const weebcentral: Source = {
     const urls = parsePageImages(html);
     if (urls.length === 0) throw new SourceError("No page images found. The site layout may have changed.", "layout_changed");
     return urls;
+  },
+
+  async search(query) {
+    const params = new URLSearchParams({
+      text: query,
+      sort: "Best Match",
+      order: "Descending",
+      official: "Any",
+      anime: "Any",
+      adult: "Any",
+      display_mode: "Full Display",
+    });
+    const html = await fetchText(`${BASE_URL}/search/data?${params}`, { referer: `${BASE_URL}/search` });
+    const results = parseSearchResults(html);
+    if (results.length === 0 && !/no results found/i.test(html)) {
+      throw new SourceError("Couldn't read the search results. The site layout may have changed.", "layout_changed");
+    }
+    return results;
   },
 };

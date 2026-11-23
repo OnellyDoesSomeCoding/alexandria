@@ -13,6 +13,9 @@ export default function AppLayout({ children }: LayoutProps<"/">) {
           <Link href="/" className="text-sm text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100">
             Library
           </Link>
+          <Link href="/search" className="text-sm text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100">
+            Search
+          </Link>
           <div className="ml-auto">
             <Suspense fallback={null}>
               <UserLink />
